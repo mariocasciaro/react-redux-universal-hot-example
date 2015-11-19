@@ -19,7 +19,7 @@ import {Provider} from 'react-redux';
 import qs from 'query-string';
 import getRoutes from './routes';
 import getStatusFromRoutes from './helpers/getStatusFromRoutes';
-import fetchAllData from './helpers/fetchAllData';
+import {fetchAllData} from './helpers/fetchComponentsData';
 
 const pretty = new PrettyError();
 const app = new Express();

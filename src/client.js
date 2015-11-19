@@ -9,17 +9,17 @@ import createStore from './redux/create';
 import ApiClient from './helpers/ApiClient';
 import io from 'socket.io-client';
 import {Provider} from 'react-redux';
-import {Router} from 'react-router';
+import {Router, match, createRoutes} from 'react-router';
 import {syncReduxAndRouter} from 'redux-simple-router';
 import getRoutes from './routes';
+import {fetchData, fetchDataDeferred} from './helpers/fetchComponentsData';
+import useScroll from 'scroll-behavior/lib/useStandardScroll';
 
 const client = new ApiClient();
 
 const dest = document.getElementById('content');
 const store = createStore(client, window.__data);
-const history = createHistory();
-
-syncReduxAndRouter(history, store);
+const routes = getRoutes(store);
 
 function initSocket() {
   const socket = io('', {path: '/api/ws', transports: ['polling']});
@@ -36,17 +36,60 @@ function initSocket() {
 
 global.socket = initSocket();
 
-function createElement(Component, props) {
-  if (Component.fetchData) {
-    Component.fetchData(store.getState, store.dispatch,
-                        props.location, props.params);
+const history = useScroll(createHistory)({routes: createRoutes(routes)});
+syncReduxAndRouter(history, store);
+
+let lastMatchedLocBefore;
+let lastMatchedLocAfter;
+
+history.listenBefore((location, callback) => {
+  const loc = location.pathname + location.search + location.hash;
+  if (lastMatchedLocBefore === loc) {
+    return callback();
   }
-  return React.createElement(Component, props);
-}
+
+  match({routes: routes, location: loc}, (err, redirectLocation, nextState) => {
+    if (!err && nextState) {
+      fetchData(nextState.components, store.getState, store.dispatch,
+        location, nextState.params)
+        .then(() => {
+          lastMatchedLocBefore = loc;
+          callback();
+        })
+        .catch(err2 => {
+          console.error(err2, 'Error while fetching data');
+          callback();
+        });
+    } else {
+      console.log('Location "%s" did not match any routes (listenBefore)', loc);
+      callback();
+    }
+  });
+});
+
+history.listen((location) => {
+  const loc = location.pathname + location.search + location.hash;
+  if (lastMatchedLocAfter === loc) {
+    return;
+  }
+
+  match({routes: routes, location: loc}, (err, redirectLocation, nextState) => {
+    if (err) {
+      console.error(err, 'Error while matching route (change handler)');
+    } else if (nextState) {
+      fetchDataDeferred(nextState.components, store.getState,
+        store.dispatch, location, nextState.params)
+        .then(() => lastMatchedLocAfter = loc)
+        .catch((err2) => console.error(err2, 'Error while fetching deferred data'));
+    } else {
+      console.log('Location "%s" did not match any routes (listen)', loc);
+    }
+  });
+});
 
 const component = (
-  <Router createElement={createElement} history={history}>
-    {getRoutes(store)}
+  <Router history={history}>
+    {routes}
   </Router>
 );
 
